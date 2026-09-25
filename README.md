@@ -16,7 +16,7 @@
 > [**ai-solutions**](https://github.com/intel/enterprise-ai-solutions)
 > platform and is cloned into it at `ext/enterprise.ai-inference/`. Install the core platform
 > first — it provisions the Kubernetes cluster and the platform services (cert-manager, Istio,
-> MetalLB, Envoy Gateway, PostgreSQL, Keycloak, MinIO, observability) that this layer depends on.
+> MetalLB, Envoy Gateway, PostgreSQL, Keycloak, SeaweedFS, observability) that this layer depends on.
 > Every command below runs from the **solutions repo root**, not from here.
 
 ---

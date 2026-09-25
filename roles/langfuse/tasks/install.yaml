@@ -2,7 +2,7 @@
 # =============================================================================
 # Langfuse — Install via Helm
 # =============================================================================
-# Uses existing platform PostgreSQL and MinIO.
+# Uses existing platform PostgreSQL and object store (SeaweedFS).
 # Redis (Valkey) and ClickHouse deployed by Helm subcharts.
 # Single-node: 1 replica, minimal resources.
 # Multi-node:  2 replicas, HPA enabled.
@@ -85,59 +85,32 @@
         _langfuse_db_pass: "{{ _langfuse_db_secret.resources[0].data.password | b64decode }}"
       no_log: true
 
-    # ── MinIO S3 credentials ──────────────────────────────────────────────────
+    # ── Object store S3 credentials ──────────────────────────────────────────
+    # Written by the platform object-store backend; the bucket already exists.
 
-    - name: "langfuse | Load MinIO credentials"
+    - name: "langfuse | Load object store credentials"
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Secret
-        name: minio-credentials
-        namespace: "{{ minio_namespace | default('minio') }}"
-      register: _langfuse_minio_secret
+        name: object-store-langfuse-credentials
+        namespace: "{{ seaweedfs_namespace }}"
+      register: _langfuse_s3_secret
       failed_when: false
 
-    - name: "langfuse | Extract MinIO credentials"
+    - name: "langfuse | Extract object store credentials"
       ansible.builtin.set_fact:
-        _langfuse_s3_endpoint: "{{ _langfuse_minio_secret.resources[0].data.endpoint | b64decode }}"
-        _langfuse_s3_access_key: "{{ _langfuse_minio_secret.resources[0].data.rootUser | b64decode }}"
-        _langfuse_s3_secret_key: "{{ _langfuse_minio_secret.resources[0].data.rootPassword | b64decode }}"
+        _langfuse_s3_endpoint: "{{ _langfuse_s3_secret.resources[0].data.endpoint | b64decode }}"
+        _langfuse_s3_access_key: "{{ _langfuse_s3_secret.resources[0].data.accessKey | b64decode }}"
+        _langfuse_s3_secret_key: "{{ _langfuse_s3_secret.resources[0].data.secretKey | b64decode }}"
       no_log: true
-      when: _langfuse_minio_secret.resources | default([]) | length > 0
+      when: _langfuse_s3_secret.resources | default([]) | length > 0
 
-    - name: "langfuse | Fallback S3 to empty (MinIO not available)"
+    - name: "langfuse | Fallback S3 to empty (object store not available)"
       ansible.builtin.set_fact:
         _langfuse_s3_endpoint: ""
         _langfuse_s3_access_key: ""
         _langfuse_s3_secret_key: ""
-      when: _langfuse_minio_secret.resources | default([]) | length == 0
-
-    # ── Create MinIO bucket for Langfuse ─────────────────────────────────────
-
-    - name: "langfuse | Create MinIO bucket"
-      when: _langfuse_s3_endpoint | length > 0
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: batch/v1
-          kind: Job
-          metadata:
-            name: langfuse-create-bucket
-            namespace: "{{ langfuse_namespace }}"
-          spec:
-            ttlSecondsAfterFinished: 60
-            template:
-              spec:
-                restartPolicy: OnFailure
-                containers:
-                  - name: mc
-                    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
-                    command:
-                      - /bin/sh
-                      - -c
-                      - |
-                        mc alias set minio {{ _langfuse_s3_endpoint }} {{ _langfuse_s3_access_key }} {{ _langfuse_s3_secret_key }} &&
-                        mc mb --ignore-existing minio/{{ langfuse_s3_bucket }}
-      failed_when: false
+      when: _langfuse_s3_secret.resources | default([]) | length == 0
 
     # ── Langfuse secrets (stable across restarts — generated once) ───────────
 
@@ -411,7 +384,7 @@
                 capabilities:
                   drop: ["ALL"]
 
-          # ── S3/MinIO — use our existing MinIO ─────────────────────────────
+          # ── S3 — use the platform object store ──────────────────────────
           s3:
             deploy: false
             bucket: "{{ langfuse_s3_bucket }}"
